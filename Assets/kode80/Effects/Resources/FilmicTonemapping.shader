@@ -88,7 +88,7 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 
 				float3 whiteScale = 1.0f/FilmicTonemap(W);
 				float3 color = curr*whiteScale;
-				float3 retColor = pow(color,1/2.2);
+				float3 retColor = pow( color, 2.2);
 				return float4(retColor,1);
 			}
 			ENDCG
