@@ -28,6 +28,13 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 		_MainTex ("Texture", 2D) = "white" {}
 		_Exposure ("Exposure", Range( 0.0, 16.0)) = 1.5
 	}
+	static const float A = 0.15;
+	static const float B = 0.50;
+	static const float C = 0.10;
+	static const float D = 0.20;
+	static const float E = 0.02;
+	static const float F = 0.30;
+	static const float W = 11.2;
 	SubShader
 	{
 		// No culling or depth
