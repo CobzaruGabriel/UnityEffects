@@ -63,6 +63,7 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 			
 			sampler2D _MainTex;
 			float _Exposure;
+			float _Dither;
 
 			static const float A = 0.15;
 			static const float B = 0.50;
@@ -78,18 +79,28 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 				return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 			}
 
+			float3 Hash( float2 seed)
+			{
+				return float3( frac(sin(dot( seed, float2(12.9898,78.233))) * 43758.5453) * 2.0 - 1.0,
+							   frac(sin(dot( -seed, float2(12.9898,78.233))) * 21879.27265) * 2.0 - 1.0,
+							   frac(sin(dot( seed.yx, float2(12.9898,78.233))) * 43758.5453) * 2.0 - 1.0);
+			}
+
 			fixed4 frag (v2f i) : SV_Target
 			{
 				float3 texColor = tex2D( _MainTex, i.uv);
 				texColor *= _Exposure;
-				float ExposureBias = 2.0f;
 
-				float3 curr = FilmicTonemap(ExposureBias*texColor);
+				float ExposureBias = 2.0f;
+				texColor *= ExposureBias;
+
+				float3 curr = FilmicTonemap( texColor);
 
 				float3 whiteScale = 1.0f/FilmicTonemap(W);
-				float3 color = curr*whiteScale;
+				float3 color = _Dither ? (curr + Hash( i.vertex) / 1024.0) * whiteScale :
+										 curr * whiteScale;
 
-				return float4( color,1);
+				return float4( color, 1);
 			}
 			ENDCG
 		}

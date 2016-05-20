@@ -31,6 +31,7 @@ namespace kode80.Effects
 	{
 		[Range( 0.0f, 16.0f)]
 		public float exposure = 1.5f;
+		public bool dither = false;
 
 		private Material _material;
 
@@ -54,6 +55,7 @@ namespace kode80.Effects
 			}
 
 			_material.SetFloat( "_Exposure", exposure);
+			_material.SetFloat( "_Dither", dither ? 1.0f : 0.0f);
 
 			Graphics.Blit( source, destination, _material);
 		}
