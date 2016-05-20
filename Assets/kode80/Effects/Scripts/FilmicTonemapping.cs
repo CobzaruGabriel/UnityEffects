@@ -31,8 +31,18 @@ namespace kode80.Effects
 	{
 		[Range( 0.0f, 16.0f)]
 		public float exposure = 1.5f;
+		public float adaptionSpeed = 1.0f;
+		public int luminanceTextureSize = 128;
+		public float luminanceLow = 0.0f;
+		public float luminanceMid = 0.25f;
+		public float luminanceHigh = 0.8f;
+		public float exposureDown = -1.0f;
+		public float exposureUp = 10.0f;
 
 		private Material _material;
+		private RenderTexture _prevFrame;
+		private RenderTexture _luminanceTexture;
+		private Camera _camera;
 
 		// Use this for initialization
 		void Start () {
@@ -44,8 +54,30 @@ namespace kode80.Effects
 		
 		}
 
-		[ImageEffectTransformsToLDR]
-		void OnRenderImage( RenderTexture source, RenderTexture destination)
+		void OnEnable()
+		{
+			_camera = GetComponent<Camera>();
+		}
+
+		void OnDisable()
+		{
+			if( _material != null) {
+				DestroyImmediate( _material);
+				_material = null;
+			}
+
+			if( _prevFrame != null) {
+				DestroyImmediate( _prevFrame);
+				_prevFrame = null;
+			}
+
+			if( _luminanceTexture != null) {
+				DestroyImmediate( _luminanceTexture);
+				_luminanceTexture = null;
+			}
+		}
+
+		void CreateResourcesIfNeeded()
 		{
 			if( _material == null)
 			{
@@ -53,9 +85,50 @@ namespace kode80.Effects
 				_material.hideFlags = HideFlags.HideAndDontSave;
 			}
 
-			_material.SetFloat( "_Exposure", exposure);
+			if( _prevFrame == null)
+			{
+				_prevFrame = new RenderTexture( luminanceTextureSize, luminanceTextureSize, 0, RenderTextureFormat.ARGBHalf);
+				_prevFrame.hideFlags = HideFlags.HideAndDontSave;
+				_prevFrame.generateMips = true;
+				_prevFrame.useMipMap = true;
+				ClearRenderTexture( _prevFrame);
+			}
 
-			Graphics.Blit( source, destination, _material);
+			if( _luminanceTexture == null)
+			{
+				_luminanceTexture = new RenderTexture( 1, 1, 0, RenderTextureFormat.ARGBHalf);
+				_luminanceTexture.hideFlags = HideFlags.HideAndDontSave;
+				ClearRenderTexture( _luminanceTexture);
+			}
+		}
+
+		[ImageEffectTransformsToLDR]
+		void OnRenderImage( RenderTexture source, RenderTexture destination)
+		{
+			CreateResourcesIfNeeded();
+
+			Graphics.Blit( source, _prevFrame, _material, 0);
+
+			int lowestMip = (int)Mathf.Log( luminanceTextureSize, 2);
+			_material.SetFloat( "_AdaptionSpeed", adaptionSpeed);
+			_material.SetFloat( "_LowestMipLevel", lowestMip);
+			_material.SetVector( "_LuminanceRange", new Vector4( luminanceLow, luminanceMid, luminanceHigh, 0.0f));
+			_material.SetVector( "_ExposureOffset", new Vector4( exposureDown, exposureUp, 0.0f, 0.0f));
+			Graphics.Blit( _prevFrame, _luminanceTexture, _material, 1);
+
+			_material.SetFloat( "_Exposure", exposure);
+			_material.SetTexture( "_LuminanceTex", _luminanceTexture);
+
+			Graphics.Blit( source, destination, _material, 2);
+			RenderTexture.active = null;
+		}
+
+		private void ClearRenderTexture( RenderTexture texture)
+		{
+			RenderTexture oldActive = RenderTexture.active;
+			RenderTexture.active = texture;
+			GL.Clear( true, true, Color.white);
+			RenderTexture.active = oldActive;
 		}
 	}
 }

@@ -26,8 +26,43 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 	Properties
 	{
 		_MainTex ("Texture", 2D) = "white" {}
+		_LuminanceTex ("Luminance", 2D) = "white" {}
 		_Exposure ("Exposure", Range( 0.0, 16.0)) = 1.5
+		_AdaptionSpeed( "AdaptionSpeed", Range( 0.0, 100.0)) = 1.0
 	}
+
+	CGINCLUDE
+	#include "UnityCG.cginc"
+
+	struct appdata
+	{
+		float4 vertex : POSITION;
+		float2 uv : TEXCOORD0;
+	};
+
+	struct v2f
+	{
+		float2 uv : TEXCOORD0;
+		float4 vertex : SV_POSITION;
+	};
+
+	v2f vert (appdata v)
+	{
+		v2f o;
+		o.vertex = mul(UNITY_MATRIX_MVP, v.vertex);
+		o.uv = v.uv;
+		return o;
+	}
+	
+	sampler2D _MainTex;
+	sampler2D _LuminanceTex;
+	float _Exposure;
+	float _AdaptionSpeed;
+	float _LowestMipLevel;
+	float4 _LuminanceRange;
+	float4 _ExposureOffset;
+	float4 _MainTex_TexelSize;
+
 	static const float A = 0.15;
 	static const float B = 0.50;
 	static const float C = 0.10;
@@ -35,70 +70,101 @@ Shader "Hidden/kode80/Effects/FilmicTonemapping"
 	static const float E = 0.02;
 	static const float F = 0.30;
 	static const float W = 11.2;
+
+	// Uncharted 2 tonemap from http://filmicgames.com/archives/75
+	float3 FilmicTonemap( float3 x)
+	{
+		return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+	}
+
+	float4 fragLuminance(v2f i) : COLOR 
+	{
+		float luminance = Luminance( tex2D( _MainTex, i.uv));
+ 
+		return float4(luminance, luminance, luminance, 1.0);
+	}
+
+	float4 fragDownsample( v2f i) : SV_Target
+	{
+		float4 coord = float4( i.uv.xy, 0.0, _LowestMipLevel);
+		float luminance = Luminance( tex2Dlod(_MainTex, coord));
+		float alpha = saturate( 0.0125 * _AdaptionSpeed);
+
+		return float4( luminance, luminance, luminance, alpha);
+	}
+
+	fixed4 fragTonemap(v2f i) : SV_Target
+	{
+		float2 luminanceColor = tex2D( _LuminanceTex, i.uv).xy;
+		float luminance = luminanceColor.x;
+
+		const float previewSize = 0.1;
+		float mid = _LuminanceRange.y;
+		if( i.uv.x < previewSize && i.uv.y < previewSize) {
+			float r = luminance < mid ? smoothstep( _LuminanceRange.y, _LuminanceRange.x, luminance) : 0.0;
+			float g = luminance > mid ? smoothstep( _LuminanceRange.y, _LuminanceRange.z, luminance) : 0.0;
+			return float4( r, g, 0.0, 1.0);
+		}
+
+		float exposureAdjust = luminance >= mid ? smoothstep( _LuminanceRange.y, _LuminanceRange.z, luminance) * _ExposureOffset.x:
+												  smoothstep( _LuminanceRange.y, _LuminanceRange.x, luminance) * _ExposureOffset.y;
+		float exposure = clamp( 1.0 + exposureAdjust, 0.01, 16.0);
+		//float exposure = clamp( _Exposure + exposureAdjust, 0.21, 16.0);
+
+		float3 texColor = tex2D( _MainTex, i.uv);
+		texColor *= exposure;
+		float ExposureBias = 2.0f;
+
+		float3 curr = FilmicTonemap(ExposureBias*texColor);
+
+		float3 whiteScale = 1.0f/FilmicTonemap(W);
+		float3 color = curr*whiteScale;
+
+		return float4( color,1);
+	}
+	ENDCG
+
 	SubShader
 	{
-		// No culling or depth
-		Cull Off ZWrite Off ZTest Always
-
+		// 0 luminance pass
 		Pass
 		{
+			ZTest Always Cull Off ZWrite Off
+			Fog { Mode off }      
+
 			CGPROGRAM
+			#pragma fragmentoption ARB_precision_hint_fastest 
 			#pragma vertex vert
-			#pragma fragment frag
-			
-			#include "UnityCG.cginc"
+			#pragma fragment fragLuminance
+			ENDCG
+		}
+		// 1 downsample blend pass
+		Pass
+		{
+			ZTest Always Cull Off ZWrite Off
+			Fog { Mode off }      
 
-			struct appdata
-			{
-				float4 vertex : POSITION;
-				float2 uv : TEXCOORD0;
-			};
+			Blend SrcAlpha OneMinusSrcAlpha
 
-			struct v2f
-			{
-				float2 uv : TEXCOORD0;
-				float4 vertex : SV_POSITION;
-			};
+			CGPROGRAM
+	      	#pragma fragmentoption ARB_precision_hint_fastest 
+	      	#pragma vertex vert
+	      	#pragma fragment fragDownsample
+	      	ENDCG
+		}
+		// 2 Tonemapping pass
+		Pass
+		{
+			ZTest Always Cull Off ZWrite Off
+			Fog { Mode off }      
 
-			v2f vert (appdata v)
-			{
-				v2f o;
-				o.vertex = mul(UNITY_MATRIX_MVP, v.vertex);
-				o.uv = v.uv;
-				return o;
-			}
-			
-			sampler2D _MainTex;
-			float _Exposure;
-
-			const float A = 0.15;
-			const float B = 0.50;
-			const float C = 0.10;
-			const float D = 0.20;
-			const float E = 0.02;
-			const float F = 0.30;
-			const float W = 11.2;
-
-			// Uncharted 2 tonemap from http://filmicgames.com/archives/75
-			float3 FilmicTonemap( float3 x)
-			{
-				return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
-			}
-
-			fixed4 frag (v2f i) : SV_Target
-			{
-				float3 texColor = tex2D( _MainTex, i.uv);
-				texColor *= _Exposure;
-				float ExposureBias = 2.0f;
-
-				float3 curr = FilmicTonemap(ExposureBias*texColor);
-
-				float3 whiteScale = 1.0f/FilmicTonemap(W);
-				float3 color = curr*whiteScale;
-
-				return float4( color,1);
-			}
+			CGPROGRAM
+			#pragma fragmentoption ARB_precision_hint_fastest 
+			#pragma vertex vert
+			#pragma fragment fragTonemap
 			ENDCG
 		}
 	}
+
+	Fallback off
 }
